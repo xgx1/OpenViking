@@ -45,7 +45,7 @@ async function withServer(handler, fn) {
   }
 }
 
-function makeProxy({ url, fetchImpl, configOverrides = {}, localToolProvider, readConfig } = {}) {
+function makeProxy({ url, fetchImpl, configOverrides = {}, localToolProvider, readConfig, hiddenTools } = {}) {
   const out = [];
   const stdout = new Writable({
     write(chunk, _encoding, callback) {
@@ -74,6 +74,7 @@ function makeProxy({ url, fetchImpl, configOverrides = {}, localToolProvider, re
     })),
     loggerFactory: () => ({ log() {}, logError() {} }),
     localToolProvider,
+    hiddenTools,
   });
   return {
     proxy,
@@ -334,6 +335,32 @@ test("a proxy with no local tool provider passes both tool methods through", asy
     assert.deepEqual(called.result, { content: [{ type: "text", text: "upstream" }] });
     assert.equal(requests.length, 2);
     assert.equal(requests[1].body.params.name, "local_probe");
+  });
+});
+
+test("hiddenTools drops listed tools from tools/list and keeps the rest", async () => {
+  // A harness hides tools it never wants to offer; the listing must shrink and
+  // nothing else (ids, ordering, other tools) may change.
+  await withServer((_req, res, entry) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    if (entry.body.method === "tools/list") {
+      res.end(JSON.stringify(jsonRpc(entry.body.id, {
+        tools: [
+          { name: "find", description: "Find context", inputSchema: { type: "object" } },
+          { name: "get_acl", description: "Read ACL", inputSchema: { type: "object" } },
+          { name: "search", description: "Search", inputSchema: { type: "object" } },
+        ],
+      })));
+      return;
+    }
+    res.end(JSON.stringify(jsonRpc(entry.body.id, { tools: [] })));
+  }, async ({ url }) => {
+    const { proxy, messages } = makeProxy({ url, hiddenTools: ["get_acl", "list_users"] });
+
+    await proxy.handleMessage({ jsonrpc: "2.0", id: 40, method: "tools/list" });
+
+    const [listed] = await messages();
+    assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["find", "search"]);
   });
 });
 

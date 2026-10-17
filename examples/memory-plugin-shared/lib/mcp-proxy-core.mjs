@@ -144,6 +144,7 @@ export function createOpenVikingMcpProxy({
   loggerFactory,
   fetchImpl = globalThis.fetch,
   localToolProvider = null,
+  hiddenTools = [],
 } = {}) {
   if (typeof fetchImpl !== "function") {
     throw new Error("global fetch is required; use Node.js 18 or newer");
@@ -181,10 +182,22 @@ export function createOpenVikingMcpProxy({
     } catch { /* debug logging must never affect protocol IO */ }
   }
 
+  const hiddenToolNames = new Set(hiddenTools);
+
   function localTools() {
     if (!localToolProvider || typeof localToolProvider.listTools !== "function") return [];
     const tools = localToolProvider.listTools();
     return Array.isArray(tools) ? tools : [];
+  }
+
+  /** Drop harness-hidden tools from a tools/list response.
+   * @param outbound - upstream JSON-RPC response.
+   * @returns the same response, or a copy without the hidden entries. */
+  function hideTools(outbound) {
+    if (hiddenToolNames.size === 0 || !Array.isArray(outbound?.result?.tools)) return outbound;
+    const kept = outbound.result.tools.filter((tool) => !hiddenToolNames.has(tool?.name));
+    if (kept.length === outbound.result.tools.length) return outbound;
+    return { ...outbound, result: { ...outbound.result, tools: kept } };
   }
 
   function appendLocalTools(message, outbound) {
@@ -461,7 +474,7 @@ export function createOpenVikingMcpProxy({
         return;
       }
       for (const outbound of result.messages) {
-        await writeMessage(appendLocalTools(message, outbound));
+        await writeMessage(appendLocalTools(message, hideTools(outbound)));
       }
     } catch (err) {
       if (expectsResponse) {

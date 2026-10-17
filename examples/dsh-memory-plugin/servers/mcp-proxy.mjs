@@ -18,6 +18,20 @@ import { createLogger } from "../shared/debug-log.mjs";
 import { toMcpProxyConfig } from "../shared/mcp-proxy-config.mjs";
 import { createOpenVikingMcpProxy } from "../shared/mcp-proxy-core.mjs";
 
+/**
+ * Tools the DSH surface never exposes. Account ACLs and watch subscriptions are
+ * console tasks — an agent session pays for their schemas in every request and
+ * has no legitimate use for them; the OpenViking console keeps them.
+ */
+export const DSH_HIDDEN_TOOLS = [
+  "list_users",
+  "list_groups",
+  "get_acl",
+  "set_acl",
+  "list_watches",
+  "cancel_watch",
+];
+
 export function readProxyConfig(env = process.env, cwd = process.cwd()) {
   const cfg = resolveConfig({}, env, cwd);
   return toMcpProxyConfig(cfg, {
@@ -41,5 +55,9 @@ function isDirectRun() {
 }
 
 if (isDirectRun()) {
-  createOpenVikingMcpProxy({ readConfig: readProxyConfig, loggerFactory: createLogger }).start();
+  createOpenVikingMcpProxy({
+    readConfig: readProxyConfig,
+    loggerFactory: createLogger,
+    hiddenTools: DSH_HIDDEN_TOOLS,
+  }).start();
 }
